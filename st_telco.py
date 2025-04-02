@@ -11,9 +11,9 @@ st.set_page_config(page_title="Telco Churn Predictor", layout="wide")
 st.title("Telco Customer Churn Predictor")
 st.markdown("---")
 
-STACKING_MODEL_PATH = "models/stacking.joblib"
-PREPROCESSOR_PATH = "models/preprocessing_transformer.pkl"
-SHAP_MODEL_PATH = "models/shap-explainer.joblib"
+STACKING_MODEL_PATH = "stacking.joblib"
+PREPROCESSOR_PATH = "preprocessing_transformer.pkl"
+SHAP_MODEL_PATH = "shap-explainer.joblib"
 
 if os.path.exists(STACKING_MODEL_PATH):
     stacking_model = joblib.load(STACKING_MODEL_PATH)
