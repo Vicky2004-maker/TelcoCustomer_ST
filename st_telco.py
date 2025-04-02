@@ -1,139 +1,184 @@
-import matplotlib.pyplot as plt
+import os
+import pickle
 import pandas as pd
 import streamlit as st
 import joblib
-import pickle
+import matplotlib.pyplot as plt
 import shap
-import openai
-import base64
+import streamlit.components.v1 as components
 
-MODEL_FILE = "telco-model-xgb.joblib"
-LE_FILE_Y = "le-preprocessor-y.joblib"
-MCLE_FILE_PKL = "mcle-preprocessor-x.pkl"
-SHAP_FILE_PKL = "shap-explainer.pkl"
+st.set_page_config(page_title="Telco Churn Predictor", layout="wide")
+st.title("Telco Customer Churn Predictor")
+st.markdown("---")
 
-CHART_FILE_NAME = "display_chart.png"
+STACKING_MODEL_PATH = "models/stacking.joblib"
+PREPROCESSOR_PATH = "models/preprocessing_transformer.pkl"
+SHAP_MODEL_PATH = "models/shap-explainer.joblib"
 
-features = {
-    "tenure": 12,
-    "MonthlyCharges": 50.0,
-    "TotalCharges": 600.0,
-    "Contract": ["Month-to-month", "One year", "Two year"],
-    "OnlineSecurity": ["Yes", "No"],
-    "TechSupport": ["Yes", "No"],
-    "OnlineBackup": ["Yes", "No"],
-    "PaperlessBilling": ["Yes", "No"],
-    "PaymentMethod": ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card"],
-    "InternetService": ["DSL", "Fiber optic", "No"],
-    "MultipleLines": ["Yes", "No", "No phone service"],
-    "StreamingMovies": ["Yes", "No"],
-    "StreamingTV": ["Yes", "No"],
-    "PhoneService": ["Yes", "No"],
-    "DeviceProtection": ["Yes", "No"],
-    "gender": ["Male", "Female"],
-    "SeniorCitizen": ["No", "Yes"],
-    "Dependents": ["Yes", "No"],
-    "Partner": ["Yes", "No"],
-}
+if os.path.exists(STACKING_MODEL_PATH):
+    stacking_model = joblib.load(STACKING_MODEL_PATH)
+    st.success("Loaded stacking model successfully.")
+else:
+    st.error(f"Stacking model not found at {STACKING_MODEL_PATH}.")
+    stacking_model = None
 
-mcle = pickle.load(open(MCLE_FILE_PKL, "rb"))
-model = joblib.load(MODEL_FILE)
-le_y = joblib.load(LE_FILE_Y)
-explainer = pickle.load(open(SHAP_FILE_PKL, "rb"))
+if os.path.exists(PREPROCESSOR_PATH):
+    with open(PREPROCESSOR_PATH, "rb") as f:
+        preprocessor = pickle.load(f)
+    st.success("Loaded preprocessing transformer successfully.")
+else:
+    st.error(f"Preprocessing transformer not found at {PREPROCESSOR_PATH}.")
+    preprocessor = None
 
-st.title("Customer Churn Prediction")
+mode = st.radio("Select Input Mode", ["Manual Input", "Upload File"])
 
-client = openai.OpenAI(
-    api_key="94787749-a159-41b3-8e9d-7eda5f7e7d66",
-    base_url="https://api.sambanova.ai/v1",
-)
+expected_features = [
+    "gender", "SeniorCitizen", "Partner", "Dependents", "tenure", "PhoneService",
+    "MultipleLines", "InternetService", "OnlineSecurity", "OnlineBackup",
+    "DeviceProtection", "TechSupport", "StreamingTV", "StreamingMovies", "Contract",
+    "PaperlessBilling", "PaymentMethod", "MonthlyCharges", "TotalCharges", "Churn"
+]
 
-with st.form("churn_form"):
-    st.subheader("Enter Customer Details")
-    col8, col9 = st.columns([2, 1])
-    col1, col2, col3 = st.columns(3)
-    col4, col5, col6, col7 = st.columns(4)
-    user_inputs = {}
+if mode == "Manual Input":
+    st.markdown("## Enter Customer Details")
+    col1, col2, col3, col4 = st.columns(4)
+    gender = col1.selectbox("Gender", ["Male", "Female"])
+    senior_citizen = col2.selectbox("Senior Citizen", ["Yes", "No"])
+    senior_citizen_val = 1 if senior_citizen == "Yes" else 0
+    partner = col3.selectbox("Partner", ["Yes", "No"])
+    dependents = col4.selectbox("Dependents", ["Yes", "No"])
 
-    with col8:
-        USER_NAME = st.text_input("Customer Name", value="Viknesh")
-    with col9:
-        user_inputs['OnlineSecurity'] = st.selectbox("Online Security", features['OnlineSecurity'])
+    col5, col6, col7 = st.columns(3)
+    tenure = col5.number_input("Tenure (months)", min_value=0, max_value=100, value=1)
+    phone_service = col6.selectbox("Phone Service", ["Yes", "No"])
+    multiple_lines = col7.selectbox("Multiple Lines", ["Yes", "No", "No phone service"])
 
-    with col1:
-        user_inputs['tenure'] = st.number_input("Tenure in months", min_value=1, step=1, value=12)
-        user_inputs['Contract'] = st.selectbox("Contract", features['Contract'])
-    with col2:
-        user_inputs['MonthlyCharges'] = st.number_input("Monthly Charges", value=50.0)
-        user_inputs['PaymentMethod'] = st.selectbox("Payment Method", features['PaymentMethod'])
-    with col3:
-        user_inputs['TotalCharges'] = st.number_input("Total Charges", value=600.0)
-        user_inputs['InternetService'] = st.selectbox("Internet Service", features['InternetService'])
+    col8, col9, col10 = st.columns(3)
+    internet_service = col8.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+    online_security = col9.selectbox("Online Security", ["Yes", "No", "No internet service"])
+    online_backup = col10.selectbox("Online Backup", ["Yes", "No", "No internet service"])
 
-    with col4:
-        user_inputs['TechSupport'] = st.selectbox("Tech Support", features['TechSupport'])
-        user_inputs['StreamingMovies'] = st.selectbox("Streaming Movies", features['StreamingMovies'])
-        user_inputs['gender'] = st.selectbox("Gender", features['gender'])
+    col11, col12, col13 = st.columns(3)
+    device_protection = col11.selectbox("Device Protection", ["Yes", "No", "No internet service"])
+    tech_support = col12.selectbox("Tech Support", ["Yes", "No", "No internet service"])
+    streaming_tv = col13.selectbox("Streaming TV", ["Yes", "No", "No internet service"])
 
-    with col5:
-        user_inputs['OnlineBackup'] = st.selectbox("Online Backup", features['OnlineBackup'])
-        user_inputs['StreamingTV'] = st.selectbox("Streaming TV", features['StreamingTV'])
-        user_inputs['SeniorCitizen'] = st.selectbox("Senior Citizen", features['SeniorCitizen'])
+    col14, col15, col16 = st.columns(3)
+    streaming_movies = col14.selectbox("Streaming Movies", ["Yes", "No", "No internet service"])
+    contract = col15.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
+    paperless_billing = col16.selectbox("Paperless Billing", ["Yes", "No"])
 
-    with col6:
-        user_inputs['PaperlessBilling'] = st.selectbox("Paperless Billing", features['PaperlessBilling'])
-        user_inputs['PhoneService'] = st.selectbox("PhoneService", features['PhoneService'])
-        user_inputs['Dependents'] = st.selectbox("Dependents", features['Dependents'])
+    col17, col18, col19 = st.columns(3)
+    payment_method = col17.selectbox("Payment Method", ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"])
+    monthly_charges = col18.number_input("Monthly Charges", min_value=0.0, value=50.0)
+    total_charges = col19.number_input("Total Charges", min_value=0.0, value=100.0)
 
-    with col7:
-        user_inputs['MultipleLines'] = st.selectbox("Multiple Lines", features['MultipleLines'])
-        user_inputs['DeviceProtection'] = st.selectbox("Device Protection", features['DeviceProtection'])
-        user_inputs['Partner'] = st.selectbox("Partner", features['Partner'])
+    user_input = {
+        "gender": gender,
+        "SeniorCitizen": senior_citizen_val,
+        "Partner": partner,
+        "Dependents": dependents,
+        "tenure": tenure,
+        "PhoneService": phone_service,
+        "MultipleLines": multiple_lines,
+        "InternetService": internet_service,
+        "OnlineSecurity": online_security,
+        "OnlineBackup": online_backup,
+        "DeviceProtection": device_protection,
+        "TechSupport": tech_support,
+        "StreamingTV": streaming_tv,
+        "StreamingMovies": streaming_movies,
+        "Contract": contract,
+        "PaperlessBilling": paperless_billing,
+        "PaymentMethod": payment_method,
+        "MonthlyCharges": monthly_charges,
+        "TotalCharges": total_charges
+    }
+    st.markdown("---")
+    st.write("### Input Summary")
+    input_df = pd.DataFrame([user_input])
+    st.dataframe(input_df)
 
-    submitted = st.form_submit_button("Predict and Explain")
+else:
+    st.markdown("## Upload a CSV or Excel File")
+    uploaded_file = st.file_uploader("Choose a file", type=["csv", "xlsx"])
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                input_df = pd.read_csv(uploaded_file)
+            else:
+                input_df = pd.read_excel(uploaded_file)
+            st.success("File uploaded successfully!")
+            st.write("### Uploaded Data")
+            st.dataframe(input_df)
+            num_rows = len(input_df)
+            st.write(f"File has {num_rows} rows.")
+            row_start = st.number_input("Start Row (0-indexed)", min_value=0, max_value=num_rows-1, value=0, step=1)
+            row_end = st.number_input("End Row (0-indexed)", min_value=row_start, max_value=num_rows-1, value=num_rows-1, step=1)
+            input_df = input_df.iloc[int(row_start): int(row_end)+1]
+            st.write(f"### Selected rows: {row_start} to {row_end}")
+            st.write("### Selected Data")
+            st.dataframe(input_df)
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            input_df = None
+    else:
+        input_df = None
 
-if submitted:
-    user_inputs = {k: [v] for k, v in user_inputs.items()}
+if st.button("Predict Churn") and input_df is not None:
+    if (stacking_model is None) or (preprocessor is None):
+        st.error("Model or preprocessor not loaded correctly.")
+    else:
+        for col in expected_features:
+            if col not in input_df.columns:
+                if col == "Churn":
+                    input_df[col] = "Yes"
+                else:
+                    st.error(f"Missing column: {col}")
+                    st.stop()
+        input_df = input_df[expected_features]
+        preprocessed_data = preprocessor.transform(input_df)
+        try:
+            preprocessed_df = pd.DataFrame(preprocessed_data, columns=input_df.columns)
+            preprocessed_df = preprocessed_df.drop("Churn", axis=1)
+            preprocessed_data = preprocessed_df.values
+        except Exception as e:
+            st.error(f"Error during preprocessing: {e}")
+            st.stop()
+        prediction = stacking_model.predict(preprocessed_data)
+        prediction_proba = stacking_model.predict_proba(preprocessed_data)[:, 1]
+        results_df = input_df.copy().drop("Churn", axis=1)
+        results_df["Prediction"] = ["Churn" if p == 1 else "No Churn" for p in prediction]
+        results_df["Churn Probability"] = prediction_proba
+        st.markdown("## Prediction Results")
+        st.dataframe(results_df)
 
-    test = pd.DataFrame(user_inputs)
-    pre_test = pd.DataFrame(user_inputs)
-    test = mcle.transform(test)
-    test['SeniorCitizen'] = test['SeniorCitizen'].map({'Yes': 1, 'No': 0})
-    display_data = pd.concat([pre_test, test])
-    display_data.index = ['Before', 'After']
-    display_data = display_data[model.get_booster().feature_names]
-    test = test[model.get_booster().feature_names]
-    st.write("Before/After Preprocessing the data:", display_data)
-    st.write("Will the customer churn?: ", le_y.inverse_transform(model.predict(test))[0])
+        if os.path.exists(SHAP_MODEL_PATH):
+            with st.spinner("Loading SHAP explainer and computing SHAP values..."):
+                explainer = joblib.load(SHAP_MODEL_PATH)
+                shap_values = explainer(preprocessed_data)
+            st.markdown("### Beeswarm Plot")
+            plt.figure(figsize=(8, 6))
+            shap.plots.beeswarm(shap_values, show=False)
+            st.pyplot(plt.gcf())
+            plt.clf()
 
-    shap_values = explainer(test)
-    ax = shap.waterfall_plot(shap_values[0], show=False, max_display=30)
-    ax.set_title(f'SHAP result for the customer: {USER_NAME}')
-    aspect_ratio_multiplier = 1.25
-    ax.figure.set_size_inches(16 * aspect_ratio_multiplier, 9 * aspect_ratio_multiplier)
-    plt.savefig(CHART_FILE_NAME)
+            st.markdown("### Dependence Plot")
+            selected_feature = st.selectbox("Select Feature for Dependence Plot", preprocessed_df.columns, key="dep_feature")
+            with st.spinner("Computing dependence plot..."):
+                plt.figure(figsize=(8, 6))
+                shap.dependence_plot(selected_feature, shap_values.values, features=preprocessed_df, show=False)
+                st.pyplot(plt.gcf())
+                plt.clf()
 
-    st.image(CHART_FILE_NAME)
-
-    response = None
-
-    try:
-        img = None
-
-        with open(CHART_FILE_NAME, "rb") as img:
-            img = base64.b64encode(img.read()).decode()
-
-        PROMPT = f"give me only a small conclusion with the provided image about the major contributing features specific for the customer in the prediction, and explain the content related with the customer churning. and make the conclusions into points wise instead of a paragraph. instead of the title conclusion, name it SHAP Inference. also the customer name if {USER_NAME}. Do Not make a point about what image is. give explanation to each points you make. dont just give blank points. group similar kind of values and give a grouped points and reason."
-        response = client.chat.completions.create(
-            model='Llama-3.2-90B-Vision-Instruct',
-            messages=[{"role": "user", "content": [{"type": "text", "text": PROMPT},
-                                                   {"type": "image_url",
-                                                    "image_url": {"url": f"data:image/png;base64,{img}"}}]}],
-            temperature=0.1,
-            top_p=0.1
-        )
-        st.markdown(response.choices[0].message.content, unsafe_allow_html=True)
-    except openai.RateLimitError as err:
-        st.write("API has exceeded the request limit. Please wait for 1 minute before trying again.")
-
-# %%
+            st.markdown("### Force Plot (for first instance)")
+            with st.spinner("Generating force plot..."):
+                try:
+                    force_plot = shap.force_plot(explainer.expected_value, shap_values.values[0], preprocessed_df.iloc[0], matplotlib=True)
+                    plt.figure(figsize=(8, 3))
+                    st.pyplot(plt.gcf())
+                    plt.clf()
+                except Exception as e:
+                    st.info(f"Force plot not available: {e}")
+        else:
+            st.info("SHAP explainer not found. Skipping explanation.")
